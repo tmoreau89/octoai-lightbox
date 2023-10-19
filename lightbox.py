@@ -108,7 +108,7 @@ def generate_gallery(my_upload, meta_prompt, num_images=3):
 
     print("Done generating the gallery!")
 
-st.set_page_config(layout="wide", page_title="GenAIterest")
+st.set_page_config(layout="wide", page_title="LightBox")
 
 st.write("## LightBox - Powered by OctoAI")
 
