@@ -4,13 +4,16 @@ from PIL import Image
 from io import BytesIO
 from base64 import b64encode, b64decode
 import os
+import random
 
 
 # These need to be set in your environment
-SEGMENT_TOKEN = os.environ["SEGMENT_TOKEN"]
-INPAINT_TOKEN = os.environ["INPAINT_TOKEN"]
-SEGMENT_ENDPOINT = os.environ["SEGMENT_ENDPOINT"]
-INPAINT_ENDPOINT = os.environ["INPAINT_ENDPOINT"]
+OCTOAI_TOKEN = os.environ["OCTOAI_TOKEN"]
+OCTOAI_TOKEN = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImIzOTQ0ZDkwIn0.eyJzdWIiOiJmZWNmMDBkYi0wZjYwLTQ4ZTQtYTJhNS1mOTY3MWMzMDhhYjgiLCJ0eXBlIjoidXNlckFjY2Vzc1Rva2VuIiwidGVuYW50SWQiOiJmYmQ0NjNkYi02ODhkLTQzMWYtOTk3NC00YzExODQ0NjMxNzkiLCJ1c2VySWQiOiJmZjI4MmE3Yy1lMTQwLTRjMjctYjQ3ZS1kNmQ2NDA3ZTgzM2EiLCJyb2xlcyI6WyJGRVRDSC1ST0xFUy1CWS1BUEkiXSwicGVybWlzc2lvbnMiOlsiRkVUQ0gtUEVSTUlTU0lPTlMtQlktQVBJIl0sImF1ZCI6ImIzOTQ0ZDkwLWYwY2YtNGYxNS04YjMzLWE1MGQ5YTFiYzQzOSIsImlzcyI6Imh0dHBzOi8vaWRlbnRpdHktZGV2Lm9jdG9tbC5haSIsImlhdCI6MTY5Njk3NDAwM30.CZjQrBJt6mK0gCuWF0---i2vMM1XwS1wSaYrIVFrlH8HGwkKvP5Jf74N3Wy3QGLGbHX_AgqxZFvoQHcqRnJt_gfn_eiF5Hcm6-6m5GD10MNWo2swfcvsuSXfsZvU5gx-VfoHoiGTzHIosbC4FTCAQhEvaGXT3UVFGlUpW30gZaaRSUDe3Ot3rUjKQCxXMgEhBLztrXALhOdHFVe5GtFrcFZaF2pFvrzG1M1dkyEjYNemADznxEj9Y4RtShIp5QWHHD5V--uVyedYXsMJ0vePypR6yUjjxvpflQ8bYdjlnG-W5NMiSLkr-V8kcSXTEUHJZfzniifg0Y1R8wq2ZQ6Nig"
+BLIP_ENDPOINT = os.environ["BLIP_ENDPOINT"]
+LLAMA2_ENDPOINT = os.environ["LLAMA2_ENDPOINT"]
+DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
+SDXL_DEPTH_ENDPOINT = os.environ["SDXL_DEPTH_ENDPOINT"]
 
 
 def image_to_base64(image: Image) -> str:
@@ -47,64 +50,107 @@ def rescale_image(image):
     return image
 
 
-def generate_gallery(my_upload, meta_prompt, num_images=3):
-
-    col1, col2, col3 = st.columns(3)
-    cols = [col1, col2, col3]
+def get_subject(my_upload):
+    client = Client(OCTOAI_TOKEN)
 
     input_img = Image.open(my_upload)
-    client = Client(token=SEGMENT_TOKEN)
     inputs = {
         "input": {
             "image": image_to_base64(input_img)
         }
     }
+    response = client.infer(endpoint_url="{}/infer".format(BLIP_ENDPOINT), inputs=inputs)
+    caption = response["output"]["caption"]
+    print("BLIP output: {}".format(caption))
 
-    # perform inference
-    response = client.infer(endpoint_url=f"{SEGMENT_ENDPOINT}/infer", inputs=inputs)
+    return caption
 
-    # get the crop mask
-    crop_mask_string = response["output"]["crop_mask"]
-    crop_mask = Image.open(BytesIO(b64decode(crop_mask_string)))
-    image = rescale_image(input_img)
-    mask_image = rescale_image(crop_mask)
 
-    # Get cropped
-    im_rgb = image.convert("RGB")
-    cropped = im_rgb.copy()
-    cropped.putalpha(mask_image.convert('L'))
+def get_prompts(caption, num_prompts=10):
+    client = Client(OCTOAI_TOKEN)
+    # Ask LLAMA for n subject ideas
+    llama_inputs = {
+        "model": "llama-2-7b-chat",
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request."},
+            {
+                "role": "user",
+                "content": "Provide a consise bullet list of {} product photography backdrops for {}. 10 words per line max.".format(num_prompts, caption)
+            }
+        ],
+        "stream": False,
+        "max_tokens": 512
+    }
+    # Send to LLAMA endpoint and do some post processing on the response stream
+    outputs = client.infer(endpoint_url="{}/v1/chat/completions".format(LLAMA2_ENDPOINT), inputs=llama_inputs)
 
-    # do inpainting
+    # Get the Llama 2 output
+    prompts = outputs.get('choices')[0].get("message").get('content')
+    prompt_list = [x.lstrip('0123456789.-•* ') for x in prompts.split('\n')]
+    if len(prompt_list) > num_prompts:
+        prompt_list = prompt_list[1:1+num_prompts]
+
+    # Print the prompt list
+    for prompt in prompt_list:
+        print(prompt)
+
+    return prompt_list
+
+def generate_gallery(my_upload, caption, prompt_list, num_images=4):
+
+    col1, col2, col3, col4 = st.columns(4)
+    cols = [col1, col2, col3, col4]
+
+    input_img = Image.open(my_upload)
     inputs = {
         "input": {
-            "prompt": meta_prompt,
-            "negative_prompt": "ugly, distorted, low res",
-            "image": image_to_base64(image),
-            "mask_image": image_to_base64(mask_image),
-            "mask_source": "MASK_IMAGE_BLACK",
-            "guidance_scale": 7.5,
-            "num_inference_steps": 20,
-            "strength": 0.99,
-            "num_images": 3,
-            "sampler": "K_EULER_ANCESTRAL",
-            "style_preset": "ads-advertising",
-            # "use_refiner": True,
+            "original": image_to_base64(input_img)
         }
     }
 
-    client = Client(token=INPAINT_TOKEN)
-    response = client.infer(endpoint_url=f"{INPAINT_ENDPOINT}/infer", inputs=inputs)
-    print(
-        "Generation time: {0:.2f} seconds".format(response["output"]["generation_time"])
-    )
-    for i, img in enumerate(response["output"]["images"]):
-        image = Image.open(BytesIO(b64decode(img["base64"])))
+    # perform inference
+    client = Client(OCTOAI_TOKEN)
+    response = client.infer(endpoint_url=f"{DEPTH_MASK_ENDPOINT}/infer", inputs=inputs)
 
-        composite = Image.alpha_composite(
-            image.convert('RGBA'),
-            crop_centered(cropped, image.size)
-        )
-        cols[i%len(cols)].image(composite)
+    # get the crop mask
+    resized_string = response["output"]["resized"]
+    crop_mask_string = response["output"]["crop_mask"]
+    depth_map_string = response["output"]["masked_depth_map"]
+    resized = Image.open(BytesIO(b64decode(resized_string)))
+    crop_mask = Image.open(BytesIO(b64decode(crop_mask_string)))
+    depth_map = Image.open(BytesIO(b64decode(depth_map_string)))
+    resized = rescale_image(resized)
+    crop_mask = rescale_image(crop_mask)
+    depth_map = rescale_image(depth_map)
+
+    # Get cropped
+    im_rgb = resized.convert("RGB")
+    cropped = im_rgb.copy()
+    cropped.putalpha(crop_mask.convert('L'))
+
+    for prompt in prompt_list:
+        # do inpainting
+        inputs = {
+            "input": {
+                "prompt": "product photography showcasing {}, {} background, lightbox, macro, dslr".format(caption, prompt),
+                "negative_prompt": "nsfw, anime, cartoon, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured",
+                "image": image_to_base64(depth_map),
+                "num_images": num_images,
+                "seed": random.randint(0, 4096),
+                "num_inference_steps": 20
+            }
+        }
+        response = client.infer(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
+        for i, img in enumerate(response["output"]["images"]):
+            image = Image.open(BytesIO(b64decode(img["base64"])))
+
+            composite = Image.alpha_composite(
+                image.convert('RGBA'),
+                crop_centered(cropped, image.size)
+            )
+            cols[i%len(cols)].image(composite, caption=prompt)
 
     print("Done generating the gallery!")
 
@@ -112,8 +158,9 @@ st.set_page_config(layout="wide", page_title="LightBox")
 
 st.write("## LightBox - Powered by OctoAI")
 
-meta_prompt = st.text_input("Product setting", value="forest, moss, mushrooms")
 my_upload = st.file_uploader("Upload a product photo", type=["png", "jpg", "jpeg"])
 
 if my_upload:
-    generate_gallery(my_upload, meta_prompt)
+    caption = get_subject(my_upload)
+    prompt_list = get_prompts(caption)
+    generate_gallery(my_upload, caption, prompt_list)
