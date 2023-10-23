@@ -5,6 +5,7 @@ from io import BytesIO
 from base64 import b64encode, b64decode
 import os
 import random
+import queue
 
 
 # These need to be set in your environment
@@ -13,6 +14,15 @@ BLIP_ENDPOINT = os.environ["BLIP_ENDPOINT"]
 LLAMA2_ENDPOINT = os.environ["LLAMA2_ENDPOINT"]
 DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
 SDXL_DEPTH_ENDPOINT = os.environ["SDXL_DEPTH_ENDPOINT"]
+
+
+def add_margin(pil_img, top, right, bottom, left, color):
+    width, height = pil_img.size
+    new_width = width + right + left
+    new_height = height + top + bottom
+    result = Image.new(pil_img.mode, (new_width, new_height), color)
+    result.paste(pil_img, (left, top))
+    return result
 
 
 def image_to_base64(image: Image) -> str:
@@ -76,7 +86,7 @@ def get_prompts(caption, num_prompts=10):
                 "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request."},
             {
                 "role": "user",
-                "content": "Provide a consise bullet list of {} product photography backdrops for {}. 10 words per line max.".format(num_prompts, caption)
+                "content": "Provide a consise bullet list of {} product photographs subjects featuring {}. 10 words per line max.".format(num_prompts, caption)
             }
         ],
         "stream": False,
@@ -97,10 +107,8 @@ def get_prompts(caption, num_prompts=10):
 
     return prompt_list
 
-def generate_gallery(my_upload, caption, prompt_list, num_images=4):
 
-    col1, col2, col3, col4 = st.columns(4)
-    cols = [col1, col2, col3, col4]
+def launch_imagen(my_upload, caption, prompt_list, num_images=4):
 
     input_img = Image.open(my_upload)
     inputs = {
@@ -109,7 +117,7 @@ def generate_gallery(my_upload, caption, prompt_list, num_images=4):
         }
     }
 
-    # perform inference
+    # obtain depth mask
     client = Client(OCTOAI_TOKEN)
     response = client.infer(endpoint_url=f"{DEPTH_MASK_ENDPOINT}/infer", inputs=inputs)
 
@@ -129,29 +137,50 @@ def generate_gallery(my_upload, caption, prompt_list, num_images=4):
     cropped = im_rgb.copy()
     cropped.putalpha(crop_mask.convert('L'))
 
+    sdxl_futures = []
     for prompt in prompt_list:
-        # do inpainting
         inputs = {
             "input": {
-                "prompt": "product photography showcasing {}, {} background, lightbox, macro, dslr".format(caption, prompt),
+                "prompt": "{}".format(prompt),
                 "negative_prompt": "nsfw, anime, cartoon, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured",
                 "image": image_to_base64(depth_map),
-                "num_images": num_images,
-                "seed": random.randint(0, 4096),
+                "num_images": 1,
                 "num_inference_steps": 20
             }
         }
-        response = client.infer(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
-        for i, img in enumerate(response["output"]["images"]):
-            image = Image.open(BytesIO(b64decode(img["base64"])))
+        # generate image
+        for i in range(num_images):
+            inputs["input"]["seed"] = random.randint(0, 4096)
+            future = client.infer_async(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
+            sdxl_futures.append({
+                "future": future,
+                "prompt": prompt
+            })
 
-            composite = Image.alpha_composite(
-                image.convert('RGBA'),
-                crop_centered(cropped, image.size)
-            )
-            cols[i%len(cols)].image(composite, caption=prompt)
+    return sdxl_futures, cropped
 
-    print("Done generating the gallery!")
+def generate_gallery(sdxl_futures, cropped, num_images=4):
+    client = Client(OCTOAI_TOKEN)
+
+    col1, col2, col3, col4 = st.columns(4)
+    cols = [col1, col2, col3, col4]
+
+    i = 0
+    while len(sdxl_futures):
+        for elem in sdxl_futures:
+            future = elem["future"]
+            prompt = elem["prompt"]
+            if client.is_future_ready(future):
+                result = client.get_future_result(future)
+                image_str = result["output"]["images"][0]["base64"]
+                image = Image.open(BytesIO(b64decode(image_str)))
+                composite = Image.alpha_composite(
+                    image.convert('RGBA'),
+                    crop_centered(cropped, image.size)
+                )
+                cols[i%len(cols)].image(composite, caption=prompt)
+                i += 1
+                sdxl_futures.remove(elem)
 
 st.set_page_config(layout="wide", page_title="LightBox")
 
@@ -163,5 +192,6 @@ if my_upload:
     caption = get_subject(my_upload)
     st.write("I've identified the subject to be: {}".format(caption))
     prompt_list = get_prompts(caption)
-    st.write("Here are 10 ideas for photography settings: \n - {}".format( "\n - ".join(prompt_list)))
-    generate_gallery(my_upload, caption, prompt_list)
+    st.write("Here are 10 ideas for product photography: \n - {}".format( "\n - ".join(prompt_list)))
+    sdxl_futures, cropped = launch_imagen(my_upload, caption, prompt_list)
+    generate_gallery(sdxl_futures, cropped)
