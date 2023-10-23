@@ -23,23 +23,23 @@ def add_margin(pil_img, mode, scaling=1.5):
     result = Image.new(pil_img.mode, (new_width, new_height), 0)
     if mode == "center":
         w_margin = int(new_width/2 - width/2)
-        h_margin = int(new_height/2 - width/2 )
+        h_margin = int(new_height/2 - height/2 )
         result.paste(pil_img, (w_margin, h_margin))
     elif mode == "top left":
         w_margin = int(new_width/3 - width/2)
-        h_margin = int(new_height/3 - width/2 )
+        h_margin = int(new_height/3 - height/2 )
         result.paste(pil_img, (w_margin, h_margin))
     elif mode == "top right":
         w_margin = int(2*new_width/3 - width/2)
-        h_margin = int(new_height/3 - width/2 )
+        h_margin = int(new_height/3 - height/2 )
         result.paste(pil_img, (w_margin, h_margin))
     elif mode == "bottom left":
         w_margin = int(new_width/3 - width/2)
-        h_margin = int(2*new_height/3 - width/2 )
+        h_margin = int(2*new_height/3 - height/2 )
         result.paste(pil_img, (w_margin, h_margin))
     elif mode == "bottom right":
         w_margin = int(2*new_width/3 - width/2)
-        h_margin = int(2*new_height/3 - width/2 )
+        h_margin = int(2*new_height/3 - height/2 )
         result.paste(pil_img, (w_margin, h_margin))
     return result
 
@@ -127,7 +127,7 @@ def get_prompts(caption, num_prompts=10):
     return prompt_list
 
 
-def launch_imagen(my_upload, prompt_list, position, num_images=4):
+def launch_imagen(my_upload, prompt_list, position, scale, num_images=4):
 
     input_img = Image.open(my_upload)
     inputs = {
@@ -148,9 +148,10 @@ def launch_imagen(my_upload, prompt_list, position, num_images=4):
     crop_mask = Image.open(BytesIO(b64decode(crop_mask_string)))
     depth_map = Image.open(BytesIO(b64decode(depth_map_string)))
     # Add margin and rescale
-    resized = add_margin(resized, position)
-    crop_mask = add_margin(crop_mask, position)
-    depth_map = add_margin(depth_map, position)
+    if scale > 1:
+        resized = add_margin(resized, position, scale)
+        crop_mask = add_margin(crop_mask, position, scale)
+        depth_map = add_margin(depth_map, position, scale)
     resized = rescale_image(resized)
     crop_mask = rescale_image(crop_mask)
     depth_map = rescale_image(depth_map)
@@ -210,12 +211,13 @@ st.write("## LightBox - Powered by OctoAI")
 
 my_upload = st.file_uploader("Upload a product photo", type=["png", "jpg", "jpeg"])
 
-position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=0)
+scale = st.slider('How much do you want to shrink the subject by?', 1.0, 2.0, 1.25)
+position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=1)
 
 if my_upload:
     caption = get_subject(my_upload)
     st.write("I've identified the subject to be: {}".format(caption))
     prompt_list = get_prompts(caption)
     st.write("Here are 10 ideas for product photography: \n - {}".format( "\n - ".join(prompt_list)))
-    sdxl_futures, cropped = launch_imagen(my_upload, prompt_list, position)
+    sdxl_futures, cropped = launch_imagen(my_upload, prompt_list, position, scale)
     generate_gallery(sdxl_futures, cropped)
