@@ -161,5 +161,7 @@ my_upload = st.file_uploader("Upload a product photo", type=["png", "jpg", "jpeg
 
 if my_upload:
     caption = get_subject(my_upload)
+    st.write("I've identified the subject to be: {}".format(caption))
     prompt_list = get_prompts(caption)
+    st.write("Here are 10 ideas for photography settings: \n - {}".format( "\n - ".join(prompt_list)))
     generate_gallery(my_upload, caption, prompt_list)
