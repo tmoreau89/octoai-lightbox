@@ -15,8 +15,8 @@ DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
 SDXL_DEPTH_ENDPOINT = os.environ["SDXL_DEPTH_ENDPOINT"]
 
 
-def add_margin(pil_img, mode, scaling=1.5):
-    # scaling has to be greater than 1
+def add_margin(pil_img, mode, scaling=1.35):
+    # scaling has to be greater than 1.33
     width, height = pil_img.size
     new_width = int(width * scaling)
     new_height = int(height * scaling)
@@ -105,7 +105,7 @@ def get_prompts(caption, num_prompts=10):
                 "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request."},
             {
                 "role": "user",
-                "content": "Provide a consise bullet list of {} product photographs featuring {}. 10 words per line max.".format(num_prompts, caption)
+                "content": "Provide a consise and descriptive bullet list of {} product photographs backdrops to present: {}. 10 words per line max.".format(num_prompts, caption)
             }
         ],
         "stream": False,
@@ -127,7 +127,7 @@ def get_prompts(caption, num_prompts=10):
     return prompt_list
 
 
-def launch_imagen(my_upload, prompt_list, position, scale, num_images=4):
+def launch_imagen(my_upload, caption, prompt_list, position, num_images=4):
 
     input_img = Image.open(my_upload)
     inputs = {
@@ -148,10 +148,9 @@ def launch_imagen(my_upload, prompt_list, position, scale, num_images=4):
     crop_mask = Image.open(BytesIO(b64decode(crop_mask_string)))
     depth_map = Image.open(BytesIO(b64decode(depth_map_string)))
     # Add margin and rescale
-    if scale > 1:
-        resized = add_margin(resized, position, scale)
-        crop_mask = add_margin(crop_mask, position, scale)
-        depth_map = add_margin(depth_map, position, scale)
+    resized = add_margin(resized, position)
+    crop_mask = add_margin(crop_mask, position)
+    depth_map = add_margin(depth_map, position)
     resized = rescale_image(resized)
     crop_mask = rescale_image(crop_mask)
     depth_map = rescale_image(depth_map)
@@ -165,11 +164,13 @@ def launch_imagen(my_upload, prompt_list, position, scale, num_images=4):
     for prompt in prompt_list:
         inputs = {
             "input": {
-                "prompt": "{}".format(prompt),
-                "negative_prompt": "nsfw, anime, cartoon, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured",
+                "prompt": "professional product photography showcasing a {}, {}".format(caption, prompt),
+                "negative_prompt": "nsfw, anime, cartoon, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
                 "image": image_to_base64(depth_map),
                 "num_images": 1,
-                "num_inference_steps": 20
+                "num_inference_steps": 20,
+                "controlnet_conditioning_scale": 0.85,
+                "control_guidance_start": 0.1
             }
         }
         # generate image
@@ -209,15 +210,16 @@ st.set_page_config(layout="wide", page_title="LightBox")
 
 st.write("## LightBox - Powered by OctoAI")
 
+st.write("Welcome to LightBox! Upload a product photo and let the AI do all of the hard work of figuring out ways to showcase your product! At times you may experience some slowness. That's because our OctoAI endpoint is warming up. After one or two uses, the app should be a lot snappier.")
+
 my_upload = st.file_uploader("Upload a product photo", type=["png", "jpg", "jpeg"])
 
-scale = st.slider('How much do you want to shrink the subject by?', 1.0, 2.0, 1.25)
-position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=1)
+position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=0)
 
 if my_upload:
     caption = get_subject(my_upload)
     st.write("I've identified the subject to be: {}".format(caption))
     prompt_list = get_prompts(caption)
-    st.write("Here are 10 ideas for product photography: \n - {}".format( "\n - ".join(prompt_list)))
-    sdxl_futures, cropped = launch_imagen(my_upload, prompt_list, position, scale)
+    st.write("Here are 10 suggested backdrops: \n - {}".format( "\n - ".join(prompt_list)))
+    sdxl_futures, cropped = launch_imagen(my_upload, caption, prompt_list, position)
     generate_gallery(sdxl_futures, cropped)
