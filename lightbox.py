@@ -214,7 +214,7 @@ st.write("Welcome to LightBox! Upload a product photo and let the AI do all of t
 
 my_upload = st.file_uploader("Upload a product photo", type=["png", "jpg", "jpeg"])
 
-position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=0)
+position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=0, horizontal=True)
 
 if my_upload:
     caption = get_subject(my_upload)
