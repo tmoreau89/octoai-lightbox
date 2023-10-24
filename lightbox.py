@@ -170,7 +170,7 @@ def launch_imagen(my_upload, caption, prompt_list, position, num_images=4):
                 "num_images": 1,
                 "num_inference_steps": 20,
                 "controlnet_conditioning_scale": 0.85,
-                "control_guidance_start": 0.1
+                "control_guidance_start": 0.05
             }
         }
         # generate image
