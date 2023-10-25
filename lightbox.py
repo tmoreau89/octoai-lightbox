@@ -169,8 +169,8 @@ def launch_imagen(my_upload, caption, prompt_list, position, num_images=4):
                 "image": image_to_base64(depth_map),
                 "num_images": 1,
                 "num_inference_steps": 20,
-                "controlnet_conditioning_scale": 0.99,
-                "control_guidance_start": 0.05
+                "controlnet_conditioning_scale": 0.85,
+                "control_guidance_start": 0.0
             }
         }
         # generate image
