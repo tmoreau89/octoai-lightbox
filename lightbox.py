@@ -15,7 +15,7 @@ DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
 SDXL_DEPTH_ENDPOINT = os.environ["SDXL_DEPTH_ENDPOINT"]
 
 
-def add_margin(pil_img, mode, scaling=1.35):
+def add_margin(pil_img, mode, scaling=1.5):
     # scaling has to be greater than 1.33
     width, height = pil_img.size
     new_width = int(width * scaling)
@@ -84,32 +84,34 @@ def get_subject(my_upload):
     input_img = Image.open(my_upload)
     inputs = {
         "input": {
-            "image": image_to_base64(input_img)
+            "image": image_to_base64(input_img),
+            "mode": "fast"
         }
     }
     response = client.infer(endpoint_url="{}/infer".format(BLIP_ENDPOINT), inputs=inputs)
-    caption = response["output"]["caption"]
+    caption = response["output"]["description"]
     print("BLIP output: {}".format(caption))
 
     return caption
 
 
-def get_prompts(caption, num_prompts=10):
+def get_prompts(caption, theme, num_prompts=10):
     client = Client(OCTOAI_TOKEN)
     # Ask LLAMA for n subject ideas
     llama_inputs = {
-        "model": "llama-2-7b-chat",
+        "model": "llama-2-13b-chat",
         "messages": [
             {
                 "role": "assistant",
                 "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request."},
             {
                 "role": "user",
-                "content": "Provide a consise and descriptive bullet list of {} product photographs backdrops to present: {}. 10 words per line max.".format(num_prompts, caption)
+                "content": "Provide a consise and descriptive bullet list of {} product photographs backdrops to feature a {} with a {} theme. 10 words per line max.".format(num_prompts, caption, theme)
             }
         ],
         "stream": False,
-        "max_tokens": 512
+        "max_tokens": 512,
+        # "temperature": 0
     }
     # Send to LLAMA endpoint and do some post processing on the response stream
     outputs = client.infer(endpoint_url="{}/v1/chat/completions".format(LLAMA2_ENDPOINT), inputs=llama_inputs)
@@ -164,12 +166,12 @@ def launch_imagen(my_upload, caption, prompt_list, position, num_images=4):
     for prompt in prompt_list:
         inputs = {
             "input": {
-                "prompt": "professional product photography showcasing a {}, {}".format(caption, prompt),
+                "prompt": "professional product photography, {}, on a surface, {}".format(caption, prompt),
                 "negative_prompt": "nsfw, anime, cartoon, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
                 "image": image_to_base64(depth_map),
                 "num_images": 1,
                 "num_inference_steps": 20,
-                "controlnet_conditioning_scale": 0.85,
+                "controlnet_conditioning_scale": 0.65,
                 "control_guidance_start": 0.0
             }
         }
@@ -214,12 +216,14 @@ st.write("Welcome to LightBox! Upload a product photo and let the AI do all of t
 
 my_upload = st.file_uploader("Upload a product photo", type=["png", "jpg", "jpeg"])
 
+theme = st.text_input("Specify a specific theme", value="Thanksgiving")
 position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=0, horizontal=True)
 
 if my_upload:
     caption = get_subject(my_upload)
-    st.write("I've identified the subject to be: {}".format(caption))
-    prompt_list = get_prompts(caption)
+    caption = ", ".join(caption.split(",")[0:1])
+    st.write("I've identified the subject to be: \n \t{}".format(caption))
+    prompt_list = get_prompts(caption, theme)
     st.write("Here are 10 suggested backdrops: \n - {}".format( "\n - ".join(prompt_list)))
     sdxl_futures, cropped = launch_imagen(my_upload, caption, prompt_list, position)
     generate_gallery(sdxl_futures, cropped)
