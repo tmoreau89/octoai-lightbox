@@ -106,7 +106,7 @@ def get_prompts(caption, theme, num_prompts=10):
                 "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request."},
             {
                 "role": "user",
-                "content": "Provide a consise and descriptive bullet list of {} product photographs backdrops to feature a {} with a {} theme. 10 words per line max.".format(num_prompts, caption, theme)
+                "content": "You will create a consise and descriptive bullet list of {} product photography backdrops to feature {} with a {} theme. Use at most 10 words per line max. Do not acknowledge the request with 'sure'.".format(num_prompts, caption, theme)
             }
         ],
         "stream": False,
@@ -119,6 +119,7 @@ def get_prompts(caption, theme, num_prompts=10):
     # Get the Llama 2 output
     prompts = outputs.get('choices')[0].get("message").get('content')
     prompt_list = [x.lstrip('0123456789.-•* ') for x in prompts.split('\n')]
+    prompt_list.remove("")
     if len(prompt_list) > num_prompts:
         prompt_list = prompt_list[1:1+num_prompts]
 
