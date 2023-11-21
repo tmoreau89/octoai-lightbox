@@ -1,3 +1,4 @@
 Pillow==9.5.0
 octoai-sdk==0.6.0
 streamlit==1.27.2
+streamlit-image-select==0.6.0
