@@ -5,15 +5,12 @@ from PIL import Image
 from io import BytesIO
 from base64 import b64encode, b64decode
 import os
-import random
 import time
 
 # These need to be set in your environment
 OCTOAI_TOKEN = os.environ["OCTOAI_API_TOKEN"]
 LLAMA2_ENDPOINT = os.environ["LLAMA2_ENDPOINT"]
 DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
-SDXL_DEPTH_ENDPOINT = os.environ["SDXL_DEPTH_ENDPOINT"]
-
 
 def image_to_base64(image: Image) -> str:
     buffered = BytesIO()
@@ -113,42 +110,40 @@ def obtain_depth_maps_receive(client, depth_map_futures):
 def cycle_backgrounds_launch(client, depth_maps, subject, prompt_list, theme):
     sdxl_futures = []
     for prompt in prompt_list:
-        inputs = {
-            "input": {
-                "prompt": "{} posing in front of {}, {}".format(subject, prompt, theme),
-                "negative_prompt": "nsfw, anime, cartoon, drawing, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
-                "style_preset": "base",
-                "num_images": 1,
-                "num_inference_steps": 30,
-                "controlnet_conditioning_scale": 0.95,
-                "control_guidance_start": 0.0
-            }
-        }
-
-        # Uncomment if we use SDXL endpoint
+        # Uncomment if we use BYOM SDXL endpoint
         # inputs = {
-        #     "prompt": "{} posing in front of {}, {}".format(subject, prompt, theme),
-        #     "negative_prompt": "nsfw, anime, cartoon, drawing, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
-        #     "width": 1024,
-        #     "height": 1024,
-        #     "style_preset": "base",
-        #     "num_images": 1,
-        #     "steps": 30,
-        #     "cfg_scale": 7.5,
-        #     "use_refiner": False,
-        #     "high_noise_frac": 0.8,
-        #     "controlnet": "depth",
-        #     "controlnet_conditioning_scale": 0.95,
+        #     "input": {
+        #         "prompt": "{} posing in front of {}, {}".format(subject, prompt, theme),
+        #         "negative_prompt": "nsfw, anime, cartoon, drawing, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
+        #         "style_preset": "base",
+        #         "num_images": 1,
+        #         "num_inference_steps": 30,
+        #         "controlnet_conditioning_scale": 0.95,
+        #         "control_guidance_start": 0.0
+        #     }
         # }
+        inputs = {
+            "prompt": "{} posing in front of {}, {}".format(subject, prompt, theme),
+            "negative_prompt": "nsfw, anime, cartoon, drawing, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
+            "width": 1024,
+            "height": 1024,
+            "style_preset": "base",
+            "num_images": 1,
+            "steps": 30,
+            "cfg_scale": 7.5,
+            "use_refiner": False,
+            "high_noise_frac": 0.8,
+            "controlnet": "depth",
+            "controlnet_conditioning_scale": 0.95,
+        }
         # generate image
         for img in depth_maps:
-            inputs["input"]["seed"] = random.randint(0, 4096)
-            inputs["input"]["image"] = image_to_base64(img)
-            future = client.infer_async(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
-
-            # Uncomment if we use SDXL endpoint
-            # inputs["controlnet_image"] = image_to_base64(img)
-            # future = client.infer_async(endpoint_url="https://image.octoai.run/generate/controlnet_xl", inputs=inputs)
+            # Uncomment if we use BYOM SDXL endpoint
+            # inputs["input"]["seed"] = random.randint(0, 4096)
+            # inputs["input"]["image"] = image_to_base64(img)
+            # future = client.infer_async(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
+            inputs["controlnet_image"] = image_to_base64(img)
+            future = client.infer_async(endpoint_url="https://image.octoai.run/generate/controlnet-sdxl", inputs=inputs)
 
             sdxl_futures.append({
                 "future": future,
@@ -169,9 +164,9 @@ def cycle_backgrounds_receive(client, sdxl_futures, cropped_imgs, num_images=5):
         while not client.is_future_ready(future):
             time.sleep(0.1)
         result = client.get_future_result(future)
-        image_str = result["output"]["images"][0]["base64"]
-        # Uncomment if we use SDXL endpoint
-        # image_str = result["images"][0]["image_b64"]
+        # Uncomment if we use BYOM SDXL endpoint
+        # image_str = result["output"]["images"][0]["base64"]
+        image_str = result["images"][0]["image_b64"]
         image = Image.open(BytesIO(b64decode(image_str)))
         composite = Image.alpha_composite(
             image.convert('RGBA'),
