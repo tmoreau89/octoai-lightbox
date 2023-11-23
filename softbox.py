@@ -9,7 +9,6 @@ import time
 
 # These need to be set in your environment
 OCTOAI_TOKEN = os.environ["OCTOAI_API_TOKEN"]
-LLAMA2_ENDPOINT = os.environ["LLAMA2_ENDPOINT"]
 DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
 
 def image_to_base64(image: Image) -> str:
@@ -49,7 +48,7 @@ def rescale_image(image):
 def get_prompts(client, theme, num_prompts=10):
     # Ask LLAMA for n backdrop ideas
     llama_inputs = {
-        "model": "llama-2-13b-chat",
+        "model": "llama-2-13b-chat-fp16",
         "messages": [
             {
                 "role": "assistant",
@@ -60,10 +59,13 @@ def get_prompts(client, theme, num_prompts=10):
             }
         ],
         "stream": False,
-        "max_tokens": 512,
+        "max_tokens": 256,
+        "presence_penalty": 0,
+        "temperature": 0.1,
+        "top_p": 0.9
     }
     # Send to LLAMA endpoint and do some post processing on the response stream
-    outputs = client.infer(endpoint_url="{}/v1/chat/completions".format(LLAMA2_ENDPOINT), inputs=llama_inputs)
+    outputs = client.infer(endpoint_url="https://text.octoai.run/v1/chat/completions", inputs=llama_inputs)
 
     # Get the Llama 2 output
     prompts = outputs.get('choices')[0].get("message").get('content')
@@ -110,18 +112,6 @@ def obtain_depth_maps_receive(client, depth_map_futures):
 def cycle_backgrounds_launch(client, depth_maps, subject, prompt_list, theme):
     sdxl_futures = []
     for prompt in prompt_list:
-        # Uncomment if we use BYOM SDXL endpoint
-        # inputs = {
-        #     "input": {
-        #         "prompt": "{} posing in front of {}, {}".format(subject, prompt, theme),
-        #         "negative_prompt": "nsfw, anime, cartoon, drawing, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
-        #         "style_preset": "base",
-        #         "num_images": 1,
-        #         "num_inference_steps": 30,
-        #         "controlnet_conditioning_scale": 0.95,
-        #         "control_guidance_start": 0.0
-        #     }
-        # }
         inputs = {
             "prompt": "{} posing in front of {}, {}".format(subject, prompt, theme),
             "negative_prompt": "nsfw, anime, cartoon, drawing, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
@@ -138,10 +128,6 @@ def cycle_backgrounds_launch(client, depth_maps, subject, prompt_list, theme):
         }
         # generate image
         for img in depth_maps:
-            # Uncomment if we use BYOM SDXL endpoint
-            # inputs["input"]["seed"] = random.randint(0, 4096)
-            # inputs["input"]["image"] = image_to_base64(img)
-            # future = client.infer_async(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
             inputs["controlnet_image"] = image_to_base64(img)
             future = client.infer_async(endpoint_url="https://image.octoai.run/generate/controlnet-sdxl", inputs=inputs)
 
@@ -164,8 +150,6 @@ def cycle_backgrounds_receive(client, sdxl_futures, cropped_imgs, num_images=5):
         while not client.is_future_ready(future):
             time.sleep(0.1)
         result = client.get_future_result(future)
-        # Uncomment if we use BYOM SDXL endpoint
-        # image_str = result["output"]["images"][0]["base64"]
         image_str = result["images"][0]["image_b64"]
         image = Image.open(BytesIO(b64decode(image_str)))
         composite = Image.alpha_composite(
