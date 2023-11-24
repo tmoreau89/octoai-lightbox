@@ -9,13 +9,11 @@ import time
 
 # These need to be set in your environment
 OCTOAI_TOKEN = os.environ["OCTOAI_TOKEN"]
-BLIP_ENDPOINT = os.environ["BLIP_ENDPOINT"]
-LLAMA2_ENDPOINT = os.environ["LLAMA2_ENDPOINT"]
+CLIP_ENDPOINT = os.environ["CLIP_ENDPOINT"]
 DEPTH_MASK_ENDPOINT = os.environ["DEPTH_MASK_ENDPOINT"]
-SDXL_DEPTH_ENDPOINT = os.environ["SDXL_DEPTH_ENDPOINT"]
 
 
-def add_margin(pil_img, mode, scaling=1.5):
+def add_margin(pil_img, mode, scaling=1.75):
     # scaling has to be greater than 1.33
     width, height = pil_img.size
     new_width = int(width * scaling)
@@ -78,19 +76,32 @@ def rescale_image(image):
     return image
 
 
-def get_subject(my_upload):
+def square_crop(image):
+    width, height = image.size
+    new_width = width if width<=height else height
+    new_height = new_width
+
+    left = (width - new_width)/2
+    top = (height - new_height)/2
+    right = (width + new_width)/2
+    bottom = (height + new_height)/2
+
+    return image.crop((left, top, right, bottom))
+
+
+def get_subject(input_img):
     client = Client(OCTOAI_TOKEN)
 
-    input_img = Image.open(my_upload)
     inputs = {
         "input": {
             "image": image_to_base64(input_img),
             "mode": "fast"
         }
     }
-    response = client.infer(endpoint_url="{}/infer".format(BLIP_ENDPOINT), inputs=inputs)
+    response = client.infer(endpoint_url="{}/infer".format(CLIP_ENDPOINT), inputs=inputs)
     caption = response["output"]["description"]
-    print("BLIP output: {}".format(caption))
+    caption = ", ".join(caption.split(",")[0:1])
+    print("CLIP interrogator output: {}".format(caption))
 
     return caption
 
@@ -99,22 +110,24 @@ def get_prompts(caption, theme, num_prompts=10):
     client = Client(OCTOAI_TOKEN)
     # Ask LLAMA for n subject ideas
     llama_inputs = {
-        "model": "llama-2-13b-chat",
+        "model": "llama-2-13b-chat-fp16",
         "messages": [
             {
                 "role": "assistant",
-                "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request."},
+                "content": "You are a helpful assistant. Do not acknowledge the request with 'sure'. Be consise."},
             {
                 "role": "user",
-                "content": "You will create a consise and descriptive bullet list of {} product photography backdrops to feature {} with a {} theme. Use at most 10 words per line max. Do not acknowledge the request with 'sure'.".format(num_prompts, caption, theme)
+                "content": "You will create a consise and descriptive bullet list of {} product photography backdrops to feature {} with a {} theme. Use at most 10 words per line max. ".format(num_prompts, caption, theme)
             }
         ],
         "stream": False,
-        "max_tokens": 512,
-        # "temperature": 0
+        "max_tokens": 256,
+        "presence_penalty": 0,
+        "temperature": 0.1,
+        "top_p": 0.9
     }
     # Send to LLAMA endpoint and do some post processing on the response stream
-    outputs = client.infer(endpoint_url="{}/v1/chat/completions".format(LLAMA2_ENDPOINT), inputs=llama_inputs)
+    outputs = client.infer(endpoint_url="https://text.octoai.run/v1/chat/completions", inputs=llama_inputs)
 
     # Get the Llama 2 output
     prompts = outputs.get('choices')[0].get("message").get('content')
@@ -130,9 +143,8 @@ def get_prompts(caption, theme, num_prompts=10):
     return prompt_list
 
 
-def launch_imagen(my_upload, caption, prompt_list, position, num_images=4):
+def launch_imagen(input_img, caption, prompt_list, position, num_images=4):
 
-    input_img = Image.open(my_upload)
     inputs = {
         "input": {
             "original": image_to_base64(input_img)
@@ -166,20 +178,22 @@ def launch_imagen(my_upload, caption, prompt_list, position, num_images=4):
     sdxl_futures = []
     for prompt in prompt_list:
         inputs = {
-            "input": {
-                "prompt": "professional product photography, {}, on a surface, {}".format(caption, prompt),
-                "negative_prompt": "nsfw, anime, cartoon, graphic, text, painting, crayon, graphite, abstract, glitch, deformed, mutated, ugly, disfigured, unprofessional, blurry",
-                "image": image_to_base64(depth_map),
-                "num_images": 1,
-                "num_inference_steps": 20,
-                "controlnet_conditioning_scale": 0.65,
-                "control_guidance_start": 0.0
-            }
+            "prompt": "professional photo, ({}) surrounded by (({})) . 35mm photograph, film, professional, 4k, highly detailed".format(caption, prompt),
+            "negative_prompt": "nsfw, out of focus, bokeh, drawing, painting, crayon, sketch, graphite, impressionist, noisy, blurry, soft, deformed, ugly",
+            "width": 1024,
+            "height": 1024,
+            "style_preset": "base",
+            "num_images": 1,
+            "steps": 20,
+            "cfg_scale": 7.5,
+            "use_refiner": True,
+            "controlnet": "depth",
+            "controlnet_conditioning_scale": 0.65,
+            "controlnet_image": image_to_base64(depth_map),
         }
         # generate image
         for i in range(num_images):
-            inputs["input"]["seed"] = random.randint(0, 4096)
-            future = client.infer_async(endpoint_url=f"{SDXL_DEPTH_ENDPOINT}/infer", inputs=inputs)
+            future = client.infer_async(endpoint_url="https://image.octoai.run/generate/controlnet-sdxl", inputs=inputs)
             sdxl_futures.append({
                 "future": future,
                 "prompt": prompt
@@ -200,7 +214,7 @@ def generate_gallery(sdxl_futures, cropped, num_images=4):
         while not client.is_future_ready(future):
             time.sleep(0.1)
         result = client.get_future_result(future)
-        image_str = result["output"]["images"][0]["base64"]
+        image_str = result["images"][0]["image_b64"]
         image = Image.open(BytesIO(b64decode(image_str)))
         composite = Image.alpha_composite(
             image.convert('RGBA'),
@@ -221,10 +235,16 @@ theme = st.text_input("Specify a specific theme", value="Thanksgiving")
 position = st.radio("Subject position", options=["center", "top left", "top right", "bottom left", "bottom right"], index=0, horizontal=True)
 
 if my_upload:
+    my_upload = Image.open(my_upload)
+    # Derive what's in the photo
     caption = get_subject(my_upload)
-    caption = ", ".join(caption.split(",")[0:1])
     st.write("I've identified the subject to be: \n \t{}".format(caption))
+    # Some pre-processing
+    my_upload = square_crop(my_upload)
+    my_upload = rescale_image(my_upload)
+    # Derive background ideas from LLAMA2
     prompt_list = get_prompts(caption, theme)
     st.write("Here are 10 suggested backdrops: \n - {}".format( "\n - ".join(prompt_list)))
+    # Generate a beautiful gallery
     sdxl_futures, cropped = launch_imagen(my_upload, caption, prompt_list, position)
     generate_gallery(sdxl_futures, cropped)
