@@ -48,14 +48,14 @@ def rescale_image(image):
 def get_prompts(client, theme, num_prompts=10):
     # Ask LLAMA for n backdrop ideas
     llama_inputs = {
-        "model": "llama-2-13b-chat-fp16",
+        "model": "mistral-7b-instruct-fp16",
         "messages": [
             {
                 "role": "assistant",
-                "content": "Below is an instruction that describes a task. Write a response that appropriately completes the request. "},
+                "content": "You are a helpful assistant. Answer the question straight away with a bullet list of answers. Do not acknowledge the request with 'sure'."},
             {
                 "role": "user",
-                "content": "You will create a consise and descriptive bullet list of {} fashion photography backdrops on the theme of {}. Use at most 10 words per line max. Do not acknowledge the request with 'sure'.".format(num_prompts, theme)
+                "content": "You will create a consise and descriptive bullet list of {} fashion photography backdrops on the theme of {}. Use at most 10 words per line max.".format(num_prompts, theme)
             }
         ],
         "stream": False,
@@ -253,7 +253,7 @@ if st.button('Generate Gallery!'):
 
     # Obtain prompts in the meanwhile
     prompt_list = get_prompts(prod_client, theme, gallery_height)
-    st.write("Here are {} suggested backdrops by Llama2: \n - {}".format(gallery_height, "\n - ".join(prompt_list)))
+    st.write("Here are {} suggested backdrops by Mistral: \n - {}".format(gallery_height, "\n - ".join(prompt_list)))
 
     # Generate original fashion short (receive)
     dm_futures, images = generate_shots_receive(prod_client, prod_client, sdxl_futures, gallery_width)
