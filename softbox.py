@@ -123,7 +123,7 @@ def cycle_backgrounds_launch(client, depth_maps, subject, prompt_list, theme):
             "cfg_scale": 7.5,
             "use_refiner": False,
             "high_noise_frac": 0.8,
-            "controlnet": "depth",
+            "controlnet": "depth_sdxl",
             "controlnet_conditioning_scale": 0.95,
         }
         # generate image
