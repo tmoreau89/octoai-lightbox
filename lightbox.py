@@ -4,7 +4,6 @@ from PIL import Image
 from io import BytesIO
 from base64 import b64encode, b64decode
 import os
-import random
 import time
 
 # These need to be set in your environment
@@ -187,7 +186,8 @@ def launch_imagen(input_img, caption, prompt_list, position, num_images=4):
             "steps": 20,
             "cfg_scale": 7.5,
             "use_refiner": True,
-            "controlnet": "depth",
+            "controlnet_preprocess": False,
+            "controlnet": "depth_sdxl",
             "controlnet_conditioning_scale": 0.65,
             "controlnet_image": image_to_base64(depth_map),
         }
